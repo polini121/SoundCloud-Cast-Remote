@@ -1,0 +1,338 @@
+<!doctype html>
+<html lang="pl">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, viewport-fit=cover" />
+<title>SoundCloud Cast Remote</title>
+<style>
+  :root {
+    --orange: #ff5500;
+    --bg: #0e0e0e;
+    --card: #1a1a1a;
+    --line: #2a2a2a;
+    --text: #f2f2f2;
+    --muted: #9a9a9a;
+  }
+  * { box-sizing: border-box; }
+  html, body {
+    margin: 0; padding: 0; height: 100%;
+    background: var(--bg); color: var(--text);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    -webkit-tap-highlight-color: transparent;
+  }
+  #app {
+    min-height: 100%;
+    display: flex; flex-direction: column;
+    max-width: 480px; margin: 0 auto;
+    padding: 20px 16px calc(20px + env(safe-area-inset-bottom));
+  }
+  header { text-align: center; margin-bottom: 16px; }
+  header h1 { font-size: 15px; color: var(--orange); margin: 0 0 4px; font-weight: 700; }
+  #statusPill {
+    display: inline-block; font-size: 11px; padding: 3px 10px; border-radius: 20px;
+    background: #3a1a00; color: var(--muted); margin-top: 4px;
+  }
+  #statusPill.ok { background: #0a4023; color: #6be3a3; }
+  #statusPill.warn { background: #402a0a; color: #ffb35c; }
+
+  #pairScreen { display: flex; flex-direction: column; gap: 10px; margin-top: 40px; }
+  #pairScreen label { font-size: 13px; color: var(--muted); }
+  #pairInput {
+    font-family: ui-monospace, Menlo, monospace; font-size: 22px; text-align: center;
+    letter-spacing: 2px; text-transform: uppercase;
+    background: var(--card); border: 1px solid var(--line); color: var(--text);
+    border-radius: 10px; padding: 14px; outline: none;
+  }
+  #pairInput:focus { border-color: var(--orange); }
+  #connectBtn {
+    background: var(--orange); color: #000; border: none; font-weight: 700;
+    font-size: 15px; padding: 14px; border-radius: 10px; cursor: pointer;
+  }
+  #connectBtn:disabled { opacity: .5; }
+  #pairError { color: #ff7a7a; font-size: 12px; min-height: 16px; text-align: center; }
+
+  #remoteScreen { display: none; flex-direction: column; gap: 16px; }
+  #remoteScreen.active { display: flex; }
+  #pairScreen.hidden { display: none; }
+
+  .card { background: var(--card); border: 1px solid var(--line); border-radius: 14px; padding: 16px; }
+
+  #artwork {
+    width: 100%; aspect-ratio: 1 / 1; border-radius: 12px; background: #222 center/cover no-repeat;
+    display: flex; align-items: center; justify-content: center; color: var(--muted); font-size: 13px;
+    margin-bottom: 12px;
+  }
+  #title { font-size: 16px; font-weight: 700; text-align: center; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  #artist { font-size: 13px; color: var(--muted); text-align: center; margin-top: 2px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+  #seekWrap { margin-top: 14px; }
+  #seekBar { height: 6px; border-radius: 4px; background: #333; position: relative; cursor: pointer; }
+  #seekFill { position: absolute; left: 0; top: 0; bottom: 0; width: 0%; background: var(--orange); border-radius: 4px; }
+  .timeRow { display: flex; justify-content: space-between; font-size: 11px; color: var(--muted); margin-top: 6px; }
+
+  .mainControls { display: flex; align-items: center; justify-content: center; gap: 22px; margin-top: 4px; }
+  .mainControls button { background: none; border: none; color: var(--text); cursor: pointer; padding: 8px; }
+  #btnPlayPause {
+    width: 62px; height: 62px; border-radius: 50%; background: var(--orange); color: #000;
+    display: flex; align-items: center; justify-content: center; font-size: 22px;
+  }
+  .mainControls button svg { width: 26px; height: 26px; }
+  #btnPlayPause svg { width: 26px; height: 26px; }
+
+  .secondaryControls { display: flex; justify-content: space-between; margin-top: 4px; }
+  .secondaryControls button {
+    flex: 1; background: none; border: none; color: var(--muted); cursor: pointer;
+    padding: 10px 4px; font-size: 11px; display: flex; flex-direction: column; align-items: center; gap: 4px;
+  }
+  .secondaryControls button.active { color: var(--orange); }
+  .secondaryControls svg { width: 20px; height: 20px; }
+
+  .volumeRow { display: flex; align-items: center; gap: 10px; margin-top: 4px; }
+  .volumeRow button {
+    background: var(--card); border: 1px solid var(--line); color: var(--text);
+    width: 40px; height: 40px; border-radius: 10px; font-size: 16px; cursor: pointer;
+  }
+
+  #reconnectBtn {
+    background: none; border: 1px solid var(--line); color: var(--muted);
+    font-size: 12px; padding: 8px; border-radius: 8px; cursor: pointer; margin-top: 4px;
+  }
+</style>
+</head>
+<body>
+<div id="app">
+  <header>
+    <h1>🔊 SoundCloud Cast Remote</h1>
+    <span id="statusPill" class="warn">Niepołączono</span>
+  </header>
+
+  <div id="pairScreen">
+    <label for="pairInput">Wpisz kod parowania z komputera</label>
+    <input id="pairInput" maxlength="12" placeholder="sc-XXXXXX" autocapitalize="characters" autocomplete="off" />
+    <div id="pairError"></div>
+    <button id="connectBtn">Połącz</button>
+  </div>
+
+  <div id="remoteScreen">
+    <div class="card">
+      <div id="artwork">brak okładki</div>
+      <div id="title">—</div>
+      <div id="artist">—</div>
+      <div id="seekWrap">
+        <div id="seekBar"><div id="seekFill"></div></div>
+        <div class="timeRow"><span id="curTime">0:00</span><span id="totTime">0:00</span></div>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="mainControls">
+        <button id="btnPrev" title="Poprzedni">
+          <svg viewBox="0 0 24 24" fill="currentColor"><path d="M6 6h2v12H6zm3.5 6 8.5 6V6z"/></svg>
+        </button>
+        <button id="btnPlayPause" title="Play/Pauza">
+          <svg id="iconPlay" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg>
+          <svg id="iconPause" viewBox="0 0 24 24" fill="currentColor" style="display:none"><path d="M6 5h4v14H6zm8 0h4v14h-4z"/></svg>
+        </button>
+        <button id="btnNext" title="Następny">
+          <svg viewBox="0 0 24 24" fill="currentColor"><path d="M16 6h2v12h-2zM6 6l8.5 6L6 18z"/></svg>
+        </button>
+      </div>
+
+      <div class="secondaryControls">
+        <button id="btnShuffle" title="Losowo">
+          <svg viewBox="0 0 24 24" fill="currentColor"><path d="M17 3h4v4h-2V6.4l-4 4-1.4-1.4 4-4H17zm4 14v4h-4v-2h1.6l-4-4 1.4-1.4 4 4V17zM3 6h4l3 3-1.4 1.4L6.2 8H3zm0 12v-2h3.2l2.4-2.4L10 15l-3 3z"/></svg>
+          <span>Losowo</span>
+        </button>
+        <button id="btnRepeat" title="Powtarzaj">
+          <svg viewBox="0 0 24 24" fill="currentColor"><path d="M7 7h10v3l4-4-4-4v3H5v6h2zm10 10H7v-3l-4 4 4 4v-3h12v-6h-2z"/></svg>
+          <span>Powtarzaj</span>
+        </button>
+        <button id="btnLike" title="Polub">
+          <svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 21s-6.7-4.35-9.3-8.1C1.1 10.6 1.6 7.4 4.2 5.9c2.1-1.2 4.4-.6 5.8 1.1L12 9l2-2c1.4-1.7 3.7-2.3 5.8-1.1 2.6 1.5 3.1 4.7 1.5 7-2.6 3.75-9.3 8.1-9.3 8.1z"/></svg>
+          <span>Lubię to</span>
+        </button>
+        <button id="btnMute" title="Wycisz">
+          <svg viewBox="0 0 24 24" fill="currentColor"><path d="M5 9v6h4l5 5V4L9 9H5z"/></svg>
+          <span>Wycisz</span>
+        </button>
+      </div>
+
+      <div class="volumeRow">
+        <button id="btnVolDown">–</button>
+        <div style="flex:1; text-align:center; font-size: 11px; color: var(--muted);">Głośność</div>
+        <button id="btnVolUp">+</button>
+      </div>
+    </div>
+
+    <button id="reconnectBtn">Rozłącz / zmień kod</button>
+  </div>
+</div>
+
+<script src="https://unpkg.com/peerjs@1.5.4/dist/peerjs.min.js"></script>
+<script>
+(function () {
+  "use strict";
+
+  const $ = (id) => document.getElementById(id);
+  const pairScreen = $("pairScreen");
+  const remoteScreen = $("remoteScreen");
+  const statusPill = $("statusPill");
+  const pairInput = $("pairInput");
+  const pairError = $("pairError");
+  const connectBtn = $("connectBtn");
+
+  let peer = null;
+  let conn = null;
+  let lastInfo = null;
+
+  // Wczytaj kod z ?id=... w URL, jeśli jest (np. z linku wygenerowanego przez rozszerzenie)
+  const urlParams = new URLSearchParams(location.search);
+  const prefillId = urlParams.get("id");
+  if (prefillId) pairInput.value = prefillId.toUpperCase();
+
+  function setStatus(text, cls) {
+    statusPill.textContent = text;
+    statusPill.className = cls || "warn";
+  }
+
+  function showRemote(show) {
+    pairScreen.classList.toggle("hidden", show);
+    remoteScreen.classList.toggle("active", show);
+  }
+
+  function send(action, value) {
+    if (!conn || !conn.open) return;
+    conn.send({ type: "action", action, value });
+  }
+
+  function fmtTime(s) {
+    return s || "0:00";
+  }
+
+  function renderInfo(info) {
+    if (!info) return;
+    lastInfo = info;
+    $("title").textContent = info.title || "—";
+    $("artist").textContent = info.artist || "—";
+    const art = $("artwork");
+    if (info.artwork) {
+      art.style.backgroundImage = `url("${info.artwork}")`;
+      art.textContent = "";
+    } else {
+      art.style.backgroundImage = "none";
+      art.textContent = "brak okładki";
+    }
+    $("curTime").textContent = fmtTime(info.current);
+    $("totTime").textContent = fmtTime(info.total);
+
+    const iconPlay = $("iconPlay");
+    const iconPause = $("iconPause");
+    if (info.playing) {
+      iconPlay.style.display = "none";
+      iconPause.style.display = "";
+    } else {
+      iconPlay.style.display = "";
+      iconPause.style.display = "none";
+    }
+  }
+
+  function connectTo(id) {
+    pairError.textContent = "";
+    connectBtn.disabled = true;
+    setStatus("Łączenie…", "warn");
+
+    if (peer) { try { peer.destroy(); } catch (e) {} }
+    // eslint-disable-next-line no-undef
+    peer = new Peer(); // losowy, anonimowy peer po stronie telefonu
+    peer.on("open", () => {
+      conn = peer.connect(id, { reliable: true });
+
+      conn.on("open", () => {
+        setStatus("Połączono ✓", "ok");
+        connectBtn.disabled = false;
+        showRemote(true);
+        conn.send({ type: "get" });
+      });
+
+      conn.on("data", (data) => {
+        if (!data || !data.type) return;
+        if (data.type === "hello" || data.type === "state") {
+          renderInfo(data.info);
+          if (data.error) setStatus(data.error, "warn");
+        }
+      });
+
+      conn.on("close", () => {
+        setStatus("Rozłączono", "warn");
+        showRemote(false);
+        connectBtn.disabled = false;
+      });
+
+      conn.on("error", (err) => {
+        pairError.textContent = "Błąd połączenia: " + (err?.type || err?.message || err);
+        connectBtn.disabled = false;
+        setStatus("Błąd", "warn");
+      });
+    });
+
+    peer.on("error", (err) => {
+      connectBtn.disabled = false;
+      if (err?.type === "peer-unavailable") {
+        pairError.textContent = "Nie znaleziono komputera o tym kodzie. Sprawdź, czy rozszerzenie jest otwarte i kod jest aktualny.";
+      } else {
+        pairError.textContent = "Błąd: " + (err?.type || err?.message || err);
+      }
+      setStatus("Błąd", "warn");
+    });
+  }
+
+  connectBtn.addEventListener("click", () => {
+    const id = pairInput.value.trim().toLowerCase();
+    if (!id) {
+      pairError.textContent = "Podaj kod parowania.";
+      return;
+    }
+    connectTo(id);
+  });
+
+  pairInput.addEventListener("keydown", (e) => {
+    if (e.key === "Enter") connectBtn.click();
+  });
+
+  $("btnPrev").addEventListener("click", () => send("prev"));
+  $("btnNext").addEventListener("click", () => send("next"));
+  $("btnPlayPause").addEventListener("click", () => send("playPause"));
+  $("btnShuffle").addEventListener("click", () => $("btnShuffle").classList.toggle("active") && send("shuffle"));
+  $("btnRepeat").addEventListener("click", () => $("btnRepeat").classList.toggle("active") && send("repeat"));
+  $("btnLike").addEventListener("click", () => { $("btnLike").classList.toggle("active"); send("like"); });
+  $("btnMute").addEventListener("click", () => { $("btnMute").classList.toggle("active"); send("mute"); });
+  $("btnVolUp").addEventListener("click", () => send("volumeUp"));
+  $("btnVolDown").addEventListener("click", () => send("volumeDown"));
+
+  $("seekBar").addEventListener("click", (e) => {
+    const rect = e.currentTarget.getBoundingClientRect();
+    const percent = ((e.clientX - rect.left) / rect.width) * 100;
+    send("seek", Math.max(0, Math.min(100, percent)));
+  });
+
+  $("reconnectBtn").addEventListener("click", () => {
+    if (conn) { try { conn.close(); } catch (e) {} }
+    if (peer) { try { peer.destroy(); } catch (e) {} }
+    conn = null;
+    showRemote(false);
+    setStatus("Niepołączono", "warn");
+  });
+
+  // Odśwież stan co 3s jako fallback (na wypadek zgubionej wiadomości)
+  setInterval(() => {
+    if (conn && conn.open) conn.send({ type: "get" });
+  }, 3000);
+
+  if (prefillId) {
+    // Autopołączenie, jeśli kod przyszedł z linku
+    setTimeout(() => connectBtn.click(), 300);
+  }
+})();
+</script>
+</body>
+</html>
