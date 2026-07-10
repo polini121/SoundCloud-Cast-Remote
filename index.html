@@ -209,6 +209,13 @@
     return s || "0:00";
   }
 
+  function normalizeArtworkUrl(url) {
+    if (!url) return url;
+    return url
+      .replace(/-t\d+x\d+(\.[a-z]+)$/i, "-t500x500$1")
+      .replace(/-(large|small|badge|crop|tiny)(\.[a-z]+)$/i, "-t500x500$2");
+  }
+
   function renderInfo(info) {
     if (!info) return;
     lastInfo = info;
@@ -216,7 +223,7 @@
     $("artist").textContent = info.artist || "—";
     const art = $("artwork");
     if (info.artwork) {
-      art.style.backgroundImage = `url("${info.artwork}")`;
+      art.style.backgroundImage = `url("${normalizeArtworkUrl(info.artwork)}")`;
       art.textContent = "";
     } else {
       art.style.backgroundImage = "none";
@@ -234,6 +241,13 @@
       iconPlay.style.display = "";
       iconPause.style.display = "none";
     }
+
+    // Odzwierciedlaj PRAWDZIWY stan z komputera, zamiast zgadywać lokalnie -
+    // inaczej przycisk na telefonie i realny stan na SoundCloud się rozjeżdżają.
+    $("btnLike").classList.toggle("active", !!info.liked);
+    $("btnShuffle").classList.toggle("active", !!info.shuffled);
+    $("btnRepeat").classList.toggle("active", !!info.repeating);
+    $("btnMute").classList.toggle("active", !!info.muted);
   }
 
   function connectTo(id) {
@@ -302,10 +316,10 @@
   $("btnPrev").addEventListener("click", () => send("prev"));
   $("btnNext").addEventListener("click", () => send("next"));
   $("btnPlayPause").addEventListener("click", () => send("playPause"));
-  $("btnShuffle").addEventListener("click", () => $("btnShuffle").classList.toggle("active") && send("shuffle"));
-  $("btnRepeat").addEventListener("click", () => $("btnRepeat").classList.toggle("active") && send("repeat"));
-  $("btnLike").addEventListener("click", () => { $("btnLike").classList.toggle("active"); send("like"); });
-  $("btnMute").addEventListener("click", () => { $("btnMute").classList.toggle("active"); send("mute"); });
+  $("btnShuffle").addEventListener("click", () => send("shuffle"));
+  $("btnRepeat").addEventListener("click", () => send("repeat"));
+  $("btnLike").addEventListener("click", () => send("like"));
+  $("btnMute").addEventListener("click", () => send("mute"));
   $("btnVolUp").addEventListener("click", () => send("volumeUp"));
   $("btnVolDown").addEventListener("click", () => send("volumeDown"));
 
