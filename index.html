@@ -265,13 +265,24 @@
   // Wczytaj kod z ?id=... w URL, jeśli jest (np. z linku wygenerowanego przez rozszerzenie)
   const urlParams = new URLSearchParams(location.search);
   const prefillId = urlParams.get("id");
-  const peerHost = urlParams.get("peerHost") || "0.peerjs.com";
-  const requestedPort = Number(urlParams.get("peerPort"));
-  const isSecureContext = window.location.protocol === "https:" || window.location.hostname === "localhost" || window.location.hostname === "127.0.0.1";
+
+  // BUGFIX: domyślne wartości muszą się zgadzać z domyślną konfiguracją
+  // rozszerzenia (offscreen.js: 0.peerjs.com:443, secure=true). Wcześniej
+  // brakujące parametry w URL (np. otwarcie strony ze starej zakładki, bez
+  // świeżego linku/QR z popupu) powodowały próbę łączenia z "localhost"
+  // po niezaszyfrowanym połączeniu, co nigdy nie mogło się udać.
+  const DEFAULT_PEER_HOST = "0.peerjs.com";
+  const DEFAULT_PEER_PORT = 443;
+  const DEFAULT_PEER_SECURE = true;
+  const DEFAULT_PEER_PATH = "/";
+
+  const peerHost = urlParams.get("peerHost") || DEFAULT_PEER_HOST;
+  const hasPortParam = urlParams.get("peerPort");
+  const requestedPort = Number(hasPortParam);
   const peerSecureOverride = urlParams.get("peerSecure");
-  const peerSecure = peerSecureOverride == null ? true : peerSecureOverride !== "false";
-  const peerPort = Number.isFinite(requestedPort) ? requestedPort : 443;
-  const peerPath = urlParams.get("peerPath") || "/";
+  const peerSecure = peerSecureOverride == null ? DEFAULT_PEER_SECURE : peerSecureOverride !== "false";
+  const peerPort = hasPortParam && Number.isFinite(requestedPort) ? requestedPort : DEFAULT_PEER_PORT;
+  const peerPath = urlParams.get("peerPath") || DEFAULT_PEER_PATH;
   const peerOptions = { host: peerHost, port: peerPort, secure: peerSecure, path: peerPath };
   if (prefillId) pairInput.value = prefillId.toUpperCase();
 
@@ -458,14 +469,22 @@
     setStatus("Łączenie…", "warn");
     clearConnectTimer();
 
+    let peerOpened = false;
+
     const attemptConnect = () => {
       connectAttempts += 1;
+      peerOpened = false;
       if (conn) { try { conn.close(); } catch (e) {} }
       if (peer) { try { peer.destroy(); } catch (e) {} }
       conn = null;
 
       connectTimer = window.setTimeout(() => {
-        if (conn && !conn.open) {
+        // BUGFIX: wcześniej ten warunek sprawdzał tylko "conn && !conn.open",
+        // ale conn jest tworzone dopiero WEWNĄTRZ peer.on("open"). Jeśli sam
+        // peer nigdy się nie połączył z serwerem PeerJS (i nie doszło do
+        // odpalenia zdarzenia "error"), conn zostawał null na zawsze i timeout
+        // nic nie robił - użytkownik utykał na "Łączenie…" bez końca.
+        if (!peerOpened || (conn && !conn.open)) {
           if (connectAttempts < MAX_CONNECT_ATTEMPTS) {
             pairError.textContent = "Czekam na komputer…";
             setStatus("Ponawiam połączenie…", "warn");
@@ -481,6 +500,7 @@
       // eslint-disable-next-line no-undef
       peer = new Peer(undefined, peerOptions); // losowy, anonimowy peer po stronie telefonu
       peer.on("open", () => {
+        peerOpened = true;
         conn = peer.connect(normalizedId, { reliable: true });
 
         conn.on("open", () => {
@@ -685,10 +705,13 @@
     setStatus("Niepołączono", "warn");
   });
 
-  // Odśwież stan co 1s jako fallback (na wypadek zgubionej wiadomości)
+  // Odśwież stan jako fallback (na wypadek zgubionej wiadomości).
+  // OPTYMALIZACJA: rozszerzenie i tak wypycha stan przy każdej zmianie oraz
+  // co ok. 2s, więc pytanie o stan co 1s było zbędnym obciążeniem połączenia
+  // WebRTC i baterii telefonu. Co 2.5s wystarcza jako siatka bezpieczeństwa.
   setInterval(() => {
     if (conn && conn.open) conn.send({ type: "get" });
-  }, 1000);
+  }, 2500);
 
   // Animuj pasek odtwarzania na żywo między danymi z komputera
   setInterval(updateSeekDisplay, 100);
