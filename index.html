@@ -27,7 +27,7 @@
     max-width: 480px; margin: 0 auto;
     padding: 20px 16px calc(20px + env(safe-area-inset-bottom));
   }
-  header { text-align: center; margin-bottom: 16px; }
+  header { text-align: center; margin-bottom: 16px; position: relative; }
   header h1 { font-size: 15px; color: var(--orange); margin: 0 0 4px; font-weight: 700; }
   #statusPill {
     display: inline-block; font-size: 11px; padding: 3px 10px; border-radius: 20px;
@@ -35,6 +35,15 @@
   }
   #statusPill.ok { background: #0a4023; color: #6be3a3; }
   #statusPill.warn { background: #402a0a; color: #ffb35c; }
+  #pullHint {
+    position: absolute; left: 50%; top: 100%; transform: translateX(-50%);
+    font-size: 11px; color: var(--muted); padding: 4px 8px; border-radius: 999px;
+    background: rgba(255,255,255,0.06); opacity: 0; pointer-events: none;
+    transition: opacity 0.15s ease, transform 0.15s ease;
+  }
+  #pullHint.visible {
+    opacity: 1; transform: translateX(-50%) translateY(4px);
+  }
 
   #pairScreen { display: flex; flex-direction: column; gap: 10px; margin-top: 40px; }
   #pairScreen label { font-size: 13px; color: var(--muted); }
@@ -100,10 +109,11 @@
 
   .secondaryControls { display: flex; justify-content: space-between; margin-top: 4px; }
   .secondaryControls button {
-    flex: 1; min-width: 0; background: rgba(255,255,255,0.03); border: 1px solid transparent;
+    flex: 1; min-width: 0; background: rgba(255,255,255,0.03); border: none;
     color: var(--muted); cursor: pointer; padding: 10px 4px; font-size: 11px;
     display: flex; flex-direction: column; align-items: center; gap: 4px; border-radius: 14px;
-    transition: background 0.15s ease, border-color 0.15s ease, color 0.15s ease;
+    transition: background 0.15s ease, color 0.15s ease;
+    outline: none;
   }
   .secondaryControls button:hover {
     background: rgba(255,255,255,0.08);
@@ -112,7 +122,7 @@
     background: rgba(255,85,0,0.18);
   }
   .secondaryControls button.active {
-    color: var(--orange); border-color: rgba(255,85,0,0.32); background: rgba(255,85,0,0.12);
+    color: #ff5500; background: rgba(255,85,0,0.18);
   }
   .secondaryControls button.repeat-one {
     color: var(--orange); border-color: rgba(255,85,0,0.32); background: rgba(255,85,0,0.12);
@@ -145,6 +155,7 @@
 <div id="app">
   <header>
     <span id="statusPill" class="warn">Niepołączono</span>
+    <div id="pullHint">Przeciągnij w dół, aby odświeżyć</div>
   </header>
 
   <div id="pairScreen">
@@ -232,6 +243,11 @@
   let lastInfoTimestamp = 0;
   let isPlaying = false;
   let repeatMode = 0; // 0=off, 1=repeat all, 2=repeat one
+  let wasMutedForSeek = false;
+  let pullStartY = null;
+  let pullDistance = 0;
+  let pullHint = null;
+  const pullThreshold = 80;
 
   // Wczytaj kod z ?id=... w URL, jeśli jest (np. z linku wygenerowanego przez rozszerzenie)
   const urlParams = new URLSearchParams(location.search);
@@ -255,7 +271,7 @@
 
   function sendToggle(action, button) {
     if (!conn || !conn.open) return;
-    button.classList.toggle("active");
+    button.classList.add("active");
     conn.send({ type: "action", action });
   }
 
@@ -264,6 +280,20 @@
     const btn = $("btnRepeat");
     btn.classList.toggle("active", repeatMode > 0);
     btn.classList.toggle("repeat-one", repeatMode === 2);
+  }
+
+  function showPullHint(show) {
+    if (!pullHint) return;
+    pullHint.classList.toggle("visible", show);
+  }
+
+  function updatePullHint(distance) {
+    if (!pullHint) return;
+    if (distance >= pullThreshold) {
+      pullHint.textContent = "Puść, aby odświeżyć";
+    } else {
+      pullHint.textContent = "Przeciągnij w dół, aby odświeżyć";
+    }
   }
 
   function fmtTime(value) {
@@ -363,6 +393,9 @@
   }
 
   function connectTo(id) {
+    pullStartY = null;
+    pullDistance = 0;
+    showPullHint(false);
     pairError.textContent = "";
     connectBtn.disabled = true;
     setStatus("Łączenie…", "warn");
@@ -421,6 +454,37 @@
     connectTo(id);
   });
 
+  pullHint = $("pullHint");
+  document.addEventListener("touchstart", (e) => {
+    if (e.touches.length !== 1) return;
+    const touch = e.touches[0];
+    if (touch.clientY > 40) return;
+    if (e.target.closest("#seekBar")) return;
+    pullStartY = touch.clientY;
+    pullDistance = 0;
+    updatePullHint(0);
+    showPullHint(true);
+  }, { passive: true });
+
+  document.addEventListener("touchmove", (e) => {
+    if (pullStartY == null) return;
+    const touch = e.touches[0];
+    pullDistance = Math.max(0, touch.clientY - pullStartY);
+    updatePullHint(pullDistance);
+    if (pullDistance > 0) e.preventDefault();
+  }, { passive: false });
+
+  document.addEventListener("touchend", () => {
+    if (pullStartY == null) return;
+    if (pullDistance >= pullThreshold && conn && conn.open) {
+      setStatus("Odświeżanie…", "warn");
+      conn.send({ type: "get" });
+    }
+    pullStartY = null;
+    pullDistance = 0;
+    showPullHint(false);
+  });
+
   pairInput.addEventListener("keydown", (e) => {
     if (e.key === "Enter") connectBtn.click();
   });
@@ -429,7 +493,7 @@
   $("btnNext").addEventListener("click", () => send("next"));
   $("btnPlayPause").addEventListener("click", () => send("playPause"));
   $("btnShuffle").addEventListener("click", () => sendToggle("shuffle", $("btnShuffle")));
-  $("btnRepeat").addEventListener("click", () => send("repeat"));
+  $("btnRepeat").addEventListener("click", () => sendToggle("repeat", $("btnRepeat")));
   $("btnLike").addEventListener("click", () => sendToggle("like", $("btnLike")));
   $("btnMute").addEventListener("click", () => sendToggle("mute", $("btnMute")));
   $("btnVolUp").addEventListener("click", () => send("volumeUp"));
@@ -440,11 +504,21 @@
 
   function getSeekPercent(clientX) {
     if (!seekRect) return 0;
-    return Math.max(0, Math.min(100, ((clientX - seekRect.left) / seekRect.width) * 100));
+    const rawPercent = ((clientX - seekRect.left) / seekRect.width) * 100;
+    const clamped = Math.max(0, Math.min(100, rawPercent));
+    return clamped >= 99.9 ? 99.9 : clamped;
   }
 
   function startSeek(e) {
     if (!conn || !conn.open) return;
+    e.preventDefault();
+    if ($("btnMute").classList.contains("active")) {
+      wasMutedForSeek = false;
+    } else {
+      wasMutedForSeek = true;
+      send("mute");
+      $("btnMute").classList.add("active");
+    }
     isSeeking = true;
     seekRect = $("seekBar").getBoundingClientRect();
     if (e.pointerId && e.currentTarget && e.currentTarget.setPointerCapture) {
@@ -457,6 +531,7 @@
 
   function moveSeek(e) {
     if (!isSeeking || !conn || !conn.open) return;
+    e.preventDefault();
     const clientX = e.clientX;
     const percent = getSeekPercent(clientX);
     send("seek", percent);
@@ -466,6 +541,11 @@
     if (!isSeeking) return;
     isSeeking = false;
     seekRect = null;
+    if (wasMutedForSeek) {
+      send("mute");
+      $("btnMute").classList.remove("active");
+      wasMutedForSeek = false;
+    }
     if (e && e.pointerId && e.currentTarget && e.currentTarget.releasePointerCapture) {
       try { e.currentTarget.releasePointerCapture(e.pointerId); } catch (error) {}
     }
@@ -480,7 +560,7 @@
     if (isSeeking) return;
     const rect = e.currentTarget.getBoundingClientRect();
     const percent = ((e.clientX - rect.left) / rect.width) * 100;
-    send("seek", Math.max(0, Math.min(100, percent)));
+    send("seek", Math.max(0, Math.min(99.9, percent)));
   });
 
   $("reconnectBtn").addEventListener("click", () => {
