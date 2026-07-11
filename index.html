@@ -269,8 +269,8 @@
   const requestedPort = Number(urlParams.get("peerPort"));
   const isSecureContext = window.location.protocol === "https:" || window.location.hostname === "localhost" || window.location.hostname === "127.0.0.1";
   const peerSecureOverride = urlParams.get("peerSecure");
-  const peerSecure = peerSecureOverride == null ? isSecureContext : peerSecureOverride !== "false";
-  const peerPort = Number.isFinite(requestedPort) ? requestedPort : (peerSecure ? 443 : 9000);
+  const peerSecure = peerSecureOverride == null ? true : peerSecureOverride !== "false";
+  const peerPort = Number.isFinite(requestedPort) ? requestedPort : 443;
   const peerPath = urlParams.get("peerPath") || "/";
   const peerOptions = { host: peerHost, port: peerPort, secure: peerSecure, path: peerPath };
   if (prefillId) pairInput.value = prefillId.toUpperCase();
