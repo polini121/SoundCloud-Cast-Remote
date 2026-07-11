@@ -265,8 +265,10 @@
   const prefillId = urlParams.get("id");
   const peerHost = urlParams.get("peerHost") || "0.peerjs.com";
   const requestedPort = Number(urlParams.get("peerPort"));
-  const peerPort = Number.isFinite(requestedPort) ? requestedPort : 443;
-  const peerSecure = urlParams.get("peerSecure") !== "false";
+  const isSecureContext = window.location.protocol === "https:" || window.location.hostname === "localhost" || window.location.hostname === "127.0.0.1";
+  const peerSecureOverride = urlParams.get("peerSecure");
+  const peerSecure = peerSecureOverride == null ? isSecureContext : peerSecureOverride !== "false";
+  const peerPort = Number.isFinite(requestedPort) ? requestedPort : (peerSecure ? 443 : 9000);
   const peerPath = urlParams.get("peerPath") || "/";
   const peerOptions = { host: peerHost, port: peerPort, secure: peerSecure, path: peerPath };
   if (prefillId) pairInput.value = prefillId.toUpperCase();
@@ -424,8 +426,12 @@
 
   function formatPeerError(err) {
     const message = String(err?.message || err?.type || err || "");
-    if (err?.type === "peer-unavailable" || message.includes("does not exist") || message.toLowerCase().includes("could not establish connection")) {
+    const text = message.toLowerCase();
+    if (err?.type === "peer-unavailable" || message.includes("does not exist") || text.includes("could not establish connection")) {
       return "Nie znaleziono komputera o tym kodzie. Upewnij się, że aplikacja lub rozszerzenie na komputerze jest otwarte i ma aktywny kod parowania. Jeśli używasz własnego serwera PeerJS, dodaj parametry URL: ?id=...&peerHost=...&peerPort=...&peerPath=...";
+    }
+    if (text.includes("server error") || text.includes("server-error") || text.includes("network")) {
+      return "Serwer PeerJS nie odpowiedział. Jeśli otwierasz stronę lokalnie z pliku, uruchom ją przez lokalny serwer HTTP/HTTPS albo podaj własny host PeerJS w URL. Przykład: ?id=...&peerHost=twoj-host&peerPort=443&peerPath=/&peerSecure=true";
     }
     return "Błąd połączenia: " + message;
   }
