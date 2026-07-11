@@ -66,13 +66,33 @@
   #artist { font-size: 13px; color: var(--muted); text-align: center; margin-top: 2px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
   #seekWrap { margin-top: 14px; }
-  #seekBar { height: 6px; border-radius: 4px; background: #333; position: relative; cursor: pointer; }
-  #seekFill { position: absolute; left: 0; top: 0; bottom: 0; width: 0%; background: var(--orange); border-radius: 4px; }
-  #seekThumb {
-    position: absolute; left: 0%; top: 50%; width: 16px; height: 16px;
-    border-radius: 50%; background: var(--orange); border: 3px solid var(--bg);
-    transform: translate(-50%, -50%); box-shadow: 0 0 0 4px rgba(255, 85, 0, 0.12);
-    pointer-events: none;
+  #seekBar {
+    height: 44px;
+    border-radius: 14px;
+    background: #181818;
+    position: relative;
+    cursor: pointer;
+    overflow: hidden;
+    background-image:
+      linear-gradient(to right, rgba(255,255,255,0.06) 1px, transparent 1px),
+      radial-gradient(circle at 10% 50%, rgba(255,255,255,0.15) 0%, rgba(255,255,255,0.05) 8%, transparent 12%),
+      radial-gradient(circle at 24% 52%, rgba(255,255,255,0.18) 0%, rgba(255,255,255,0.04) 6%, transparent 10%),
+      radial-gradient(circle at 40% 46%, rgba(255,255,255,0.22) 0%, rgba(255,255,255,0.02) 4%, transparent 8%),
+      radial-gradient(circle at 58% 55%, rgba(255,255,255,0.16) 0%, rgba(255,255,255,0.05) 7%, transparent 10%),
+      radial-gradient(circle at 74% 48%, rgba(255,255,255,0.18) 0%, rgba(255,255,255,0.03) 5%, transparent 9%),
+      radial-gradient(circle at 88% 53%, rgba(255,255,255,0.12) 0%, rgba(255,255,255,0.05) 6%, transparent 10%);
+    background-size: 8px 100%, 100% 100%, 100% 100%, 100% 100%, 100% 100%, 100% 100%, 100% 100%;
+  }
+  #seekFill {
+    position: absolute;
+    left: 0;
+    top: 0;
+    bottom: 0;
+    width: 0%;
+    background: linear-gradient(90deg, rgba(255,85,0,0.95) 0%, rgba(255,85,0,0.12) 100%);
+    mix-blend-mode: screen;
+    transition: width 0.18s linear;
+    will-change: width;
   }
   .timeRow { display: flex; justify-content: space-between; font-size: 11px; color: var(--muted); margin-top: 6px; }
 
@@ -127,7 +147,6 @@
       <div id="seekWrap">
         <div id="seekBar">
           <div id="seekFill"></div>
-          <div id="seekThumb"></div>
         </div>
         <div class="timeRow"><span id="curTime">0:00</span><span id="totTime">0:00</span></div>
       </div>
@@ -193,6 +212,10 @@
   let peer = null;
   let conn = null;
   let lastInfo = null;
+  let lastCurrent = null;
+  let lastTotal = null;
+  let lastInfoTimestamp = 0;
+  let isPlaying = false;
 
   // Wczytaj kod z ?id=... w URL, jeśli jest (np. z linku wygenerowanego przez rozszerzenie)
   const urlParams = new URLSearchParams(location.search);
@@ -214,8 +237,13 @@
     conn.send({ type: "action", action, value });
   }
 
-  function fmtTime(s) {
-    return s || "0:00";
+  function fmtTime(value) {
+    if (typeof value === "number" && !Number.isNaN(value)) {
+      const minutes = Math.floor(value / 60);
+      const seconds = Math.floor(value % 60);
+      return `${minutes}:${String(seconds).padStart(2, "0")}`;
+    }
+    return value || "0:00";
   }
 
   function parseSeconds(value) {
@@ -229,6 +257,20 @@
       return parts[0];
     }
     return null;
+  }
+
+  function getInterpolatedTime() {
+    if (lastCurrent == null || lastTotal == null) return null;
+    const elapsed = (performance.now() - lastInfoTimestamp) / 1000;
+    const current = Math.min(lastTotal, lastCurrent + (isPlaying ? elapsed : 0));
+    return { current, total: lastTotal };
+  }
+
+  function updateSeekDisplay() {
+    const times = getInterpolatedTime();
+    if (!times) return;
+    $("curTime").textContent = fmtTime(times.current);
+    setSeekProgress((times.current / times.total) * 100);
   }
 
   function setSeekProgress(percent) {
@@ -257,14 +299,18 @@
       art.style.backgroundImage = "none";
       art.textContent = "brak okładki";
     }
-    $("curTime").textContent = fmtTime(info.current);
     $("totTime").textContent = fmtTime(info.total);
     const current = parseSeconds(info.current);
     const total = parseSeconds(info.total);
+    lastCurrent = current;
+    lastTotal = total;
+    lastInfoTimestamp = performance.now();
+    isPlaying = !!info.playing;
     if (current != null && total != null && total > 0) {
-      setSeekProgress((current / total) * 100);
+      updateSeekDisplay();
     } else {
       setSeekProgress(0);
+      $("curTime").textContent = fmtTime(info.current);
     }
 
     const iconPlay = $("iconPlay");
@@ -376,6 +422,9 @@
   setInterval(() => {
     if (conn && conn.open) conn.send({ type: "get" });
   }, 3000);
+
+  // Animuj pasek odtwarzania na żywo między danymi z komputera
+  setInterval(updateSeekDisplay, 200);
 
   if (prefillId) {
     // Autopołączenie, jeśli kod przyszedł z linku
