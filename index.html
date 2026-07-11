@@ -100,10 +100,33 @@
 
   .secondaryControls { display: flex; justify-content: space-between; margin-top: 4px; }
   .secondaryControls button {
-    flex: 1; background: none; border: none; color: var(--muted); cursor: pointer;
-    padding: 10px 4px; font-size: 11px; display: flex; flex-direction: column; align-items: center; gap: 4px;
+    flex: 1; min-width: 0; background: rgba(255,255,255,0.03); border: 1px solid transparent;
+    color: var(--muted); cursor: pointer; padding: 10px 4px; font-size: 11px;
+    display: flex; flex-direction: column; align-items: center; gap: 4px; border-radius: 14px;
+    transition: background 0.15s ease, border-color 0.15s ease, color 0.15s ease;
   }
-  .secondaryControls button.active { color: var(--orange); }
+  .secondaryControls button:hover {
+    background: rgba(255,255,255,0.08);
+  }
+  .secondaryControls button:active {
+    background: rgba(255,85,0,0.18);
+  }
+  .secondaryControls button.active {
+    color: var(--orange); border-color: rgba(255,85,0,0.32); background: rgba(255,85,0,0.12);
+  }
+  .secondaryControls button.repeat-one {
+    color: var(--orange); border-color: rgba(255,85,0,0.32); background: rgba(255,85,0,0.12);
+    position: relative;
+  }
+  .secondaryControls button.repeat-one::after {
+    content: "1";
+    position: absolute;
+    right: 10px;
+    top: 6px;
+    font-size: 10px;
+    font-weight: 700;
+    color: var(--orange);
+  }
   .secondaryControls svg { width: 20px; height: 20px; }
 
   .volumeRow { display: flex; align-items: center; gap: 10px; margin-top: 4px; }
@@ -208,6 +231,7 @@
   let lastTotal = null;
   let lastInfoTimestamp = 0;
   let isPlaying = false;
+  let repeatMode = 0; // 0=off, 1=repeat all, 2=repeat one
 
   // Wczytaj kod z ?id=... w URL, jeśli jest (np. z linku wygenerowanego przez rozszerzenie)
   const urlParams = new URLSearchParams(location.search);
@@ -227,6 +251,19 @@
   function send(action, value) {
     if (!conn || !conn.open) return;
     conn.send({ type: "action", action, value });
+  }
+
+  function sendToggle(action, button) {
+    if (!conn || !conn.open) return;
+    button.classList.toggle("active");
+    conn.send({ type: "action", action });
+  }
+
+  function setRepeatState(mode) {
+    repeatMode = mode || 0;
+    const btn = $("btnRepeat");
+    btn.classList.toggle("active", repeatMode > 0);
+    btn.classList.toggle("repeat-one", repeatMode === 2);
   }
 
   function fmtTime(value) {
@@ -318,7 +355,10 @@
     // inaczej przycisk na telefonie i realny stan na SoundCloud się rozjeżdżają.
     $("btnLike").classList.toggle("active", !!info.liked);
     $("btnShuffle").classList.toggle("active", !!info.shuffled);
-    $("btnRepeat").classList.toggle("active", !!info.repeating);
+    const mode = typeof info.repeatMode === "number"
+      ? info.repeatMode
+      : (!!info.repeating ? 1 : 0);
+    setRepeatState(mode);
     $("btnMute").classList.toggle("active", !!info.muted);
   }
 
@@ -388,10 +428,10 @@
   $("btnPrev").addEventListener("click", () => send("prev"));
   $("btnNext").addEventListener("click", () => send("next"));
   $("btnPlayPause").addEventListener("click", () => send("playPause"));
-  $("btnShuffle").addEventListener("click", () => send("shuffle"));
+  $("btnShuffle").addEventListener("click", () => sendToggle("shuffle", $("btnShuffle")));
   $("btnRepeat").addEventListener("click", () => send("repeat"));
-  $("btnLike").addEventListener("click", () => send("like"));
-  $("btnMute").addEventListener("click", () => send("mute"));
+  $("btnLike").addEventListener("click", () => sendToggle("like", $("btnLike")));
+  $("btnMute").addEventListener("click", () => sendToggle("mute", $("btnMute")));
   $("btnVolUp").addEventListener("click", () => send("volumeUp"));
   $("btnVolDown").addEventListener("click", () => send("volumeDown"));
 
@@ -429,10 +469,6 @@
     if (e && e.pointerId && e.currentTarget && e.currentTarget.releasePointerCapture) {
       try { e.currentTarget.releasePointerCapture(e.pointerId); } catch (error) {}
     }
-  }
-    if (!isSeeking) return;
-    isSeeking = false;
-    seekRect = null;
   }
 
   $("seekBar").addEventListener("pointerdown", startSeek);
