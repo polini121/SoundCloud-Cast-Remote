@@ -258,10 +258,17 @@
   let pullDistance = 0;
   let pullHint = null;
   const pullThreshold = 80;
+  let connectTimer = null;
 
   // Wczytaj kod z ?id=... w URL, jeśli jest (np. z linku wygenerowanego przez rozszerzenie)
   const urlParams = new URLSearchParams(location.search);
   const prefillId = urlParams.get("id");
+  const peerHost = urlParams.get("peerHost") || "0.peerjs.com";
+  const requestedPort = Number(urlParams.get("peerPort"));
+  const peerPort = Number.isFinite(requestedPort) ? requestedPort : 443;
+  const peerSecure = urlParams.get("peerSecure") !== "false";
+  const peerPath = urlParams.get("peerPath") || "/";
+  const peerOptions = { host: peerHost, port: peerPort, secure: peerSecure, path: peerPath };
   if (prefillId) pairInput.value = prefillId.toUpperCase();
 
   function setStatus(text, cls) {
@@ -408,6 +415,21 @@
     $("btnMute").classList.toggle("active", !!info.muted);
   }
 
+  function clearConnectTimer() {
+    if (connectTimer) {
+      clearTimeout(connectTimer);
+      connectTimer = null;
+    }
+  }
+
+  function formatPeerError(err) {
+    const message = String(err?.message || err?.type || err || "");
+    if (err?.type === "peer-unavailable" || message.includes("does not exist") || message.toLowerCase().includes("could not establish connection")) {
+      return "Nie znaleziono komputera o tym kodzie. Upewnij się, że aplikacja lub rozszerzenie na komputerze jest otwarte i ma aktywny kod parowania. Jeśli używasz własnego serwera PeerJS, dodaj parametry URL: ?id=...&peerHost=...&peerPort=...&peerPath=...";
+    }
+    return "Błąd połączenia: " + message;
+  }
+
   function connectTo(id) {
     pullStartY = null;
     pullDistance = 0;
@@ -415,14 +437,24 @@
     pairError.textContent = "";
     connectBtn.disabled = true;
     setStatus("Łączenie…", "warn");
+    clearConnectTimer();
+
+    connectTimer = window.setTimeout(() => {
+      if (conn && !conn.open) {
+        pairError.textContent = "Połączenie nie zostało nawiązane w czasie. Sprawdź, czy komputer jest online i czy kod jest aktualny.";
+        connectBtn.disabled = false;
+        setStatus("Błąd", "warn");
+      }
+    }, 10000);
 
     if (peer) { try { peer.destroy(); } catch (e) {} }
     // eslint-disable-next-line no-undef
-    peer = new Peer(); // losowy, anonimowy peer po stronie telefonu
+    peer = new Peer(undefined, peerOptions); // losowy, anonimowy peer po stronie telefonu
     peer.on("open", () => {
       conn = peer.connect(id, { reliable: true });
 
       conn.on("open", () => {
+        clearConnectTimer();
         setStatus("Podłączono ✓", "ok");
         connectBtn.disabled = false;
         showRemote(true);
@@ -438,25 +470,24 @@
       });
 
       conn.on("close", () => {
+        clearConnectTimer();
         setStatus("Rozłączono", "warn");
         showRemote(false);
         connectBtn.disabled = false;
       });
 
       conn.on("error", (err) => {
-        pairError.textContent = "Błąd połączenia: " + (err?.type || err?.message || err);
+        clearConnectTimer();
+        pairError.textContent = formatPeerError(err);
         connectBtn.disabled = false;
         setStatus("Błąd", "warn");
       });
     });
 
     peer.on("error", (err) => {
+      clearConnectTimer();
       connectBtn.disabled = false;
-      if (err?.type === "peer-unavailable") {
-        pairError.textContent = "Nie znaleziono komputera o tym kodzie. Sprawdź, czy rozszerzenie jest otwarte i kod jest aktualny.";
-      } else {
-        pairError.textContent = "Błąd: " + (err?.type || err?.message || err);
-      }
+      pairError.textContent = formatPeerError(err);
       setStatus("Błąd", "warn");
     });
   }
@@ -596,6 +627,7 @@
   });
 
   $("reconnectBtn").addEventListener("click", () => {
+    clearConnectTimer();
     if (conn) { try { conn.close(); } catch (e) {} }
     if (peer) { try { peer.destroy(); } catch (e) {} }
     conn = null;
