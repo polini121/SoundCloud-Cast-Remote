@@ -68,21 +68,13 @@
 
   #seekWrap { margin-top: 14px; }
   #seekBar {
-    height: 44px;
-    border-radius: 14px;
-    background: #181818;
+    height: 20px;
+    border-radius: 999px;
+    background: #2a2a2a;
     position: relative;
     cursor: pointer;
     overflow: hidden;
-    background-image:
-      linear-gradient(to right, rgba(255,255,255,0.06) 1px, transparent 1px),
-      radial-gradient(circle at 10% 50%, rgba(255,255,255,0.15) 0%, rgba(255,255,255,0.05) 8%, transparent 12%),
-      radial-gradient(circle at 24% 52%, rgba(255,255,255,0.18) 0%, rgba(255,255,255,0.04) 6%, transparent 10%),
-      radial-gradient(circle at 40% 46%, rgba(255,255,255,0.22) 0%, rgba(255,255,255,0.02) 4%, transparent 8%),
-      radial-gradient(circle at 58% 55%, rgba(255,255,255,0.16) 0%, rgba(255,255,255,0.05) 7%, transparent 10%),
-      radial-gradient(circle at 74% 48%, rgba(255,255,255,0.18) 0%, rgba(255,255,255,0.03) 5%, transparent 9%),
-      radial-gradient(circle at 88% 53%, rgba(255,255,255,0.12) 0%, rgba(255,255,255,0.05) 6%, transparent 10%);
-    background-size: 8px 100%, 100% 100%, 100% 100%, 100% 100%, 100% 100%, 100% 100%, 100% 100%;
+    touch-action: none;
   }
   #seekFill {
     position: absolute;
@@ -415,19 +407,29 @@
     if (!conn || !conn.open) return;
     isSeeking = true;
     seekRect = $("seekBar").getBoundingClientRect();
-    const clientX = e.type.startsWith("touch") ? e.touches[0].clientX : e.clientX;
+    if (e.pointerId && e.currentTarget && e.currentTarget.setPointerCapture) {
+      try { e.currentTarget.setPointerCapture(e.pointerId); } catch (error) {}
+    }
+    const clientX = e.clientX;
     const percent = getSeekPercent(clientX);
     send("seek", percent);
   }
 
   function moveSeek(e) {
     if (!isSeeking || !conn || !conn.open) return;
-    const clientX = e.type.startsWith("touch") ? e.touches[0].clientX : e.clientX;
+    const clientX = e.clientX;
     const percent = getSeekPercent(clientX);
     send("seek", percent);
   }
 
-  function endSeek() {
+  function endSeek(e) {
+    if (!isSeeking) return;
+    isSeeking = false;
+    seekRect = null;
+    if (e && e.pointerId && e.currentTarget && e.currentTarget.releasePointerCapture) {
+      try { e.currentTarget.releasePointerCapture(e.pointerId); } catch (error) {}
+    }
+  }
     if (!isSeeking) return;
     isSeeking = false;
     seekRect = null;
