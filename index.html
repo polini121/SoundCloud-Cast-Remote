@@ -15,12 +15,12 @@
   }
   * { box-sizing: border-box; }
   html, body {
-    margin: 0; padding: 0; height: 100%;
-    overflow: hidden;
-    overscroll-behavior: none;
-    touch-action: manipulation;
+    margin: 0; padding: 0; min-height: 100%;
+    overflow-y: auto;
+    overscroll-behavior: auto;
     background: var(--bg); color: var(--text);
     font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    -webkit-overflow-scrolling: touch;
     -webkit-tap-highlight-color: transparent;
   }
   #app {
@@ -121,13 +121,21 @@
     background: rgba(255,255,255,0.08);
   }
   .secondaryControls button:active {
-    background: rgba(255,85,0,0.18);
+    background: rgba(255,85,0,0.20);
   }
   .secondaryControls button.active {
-    color: #ff5500; background: rgba(255,85,0,0.18);
+    color: #ff5500;
+    background: linear-gradient(180deg, rgba(255,85,0,0.28), rgba(255,85,0,0.18));
+    border: 1px solid rgba(255,85,0,0.45);
+    box-shadow: inset 0 0 0 1px rgba(255,255,255,0.06);
+  }
+  .secondaryControls button.active span,
+  .secondaryControls button.active svg {
+    color: inherit;
+    fill: currentColor;
   }
   .secondaryControls button.repeat-one {
-    color: var(--orange); border-color: rgba(255,85,0,0.32); background: rgba(255,85,0,0.12);
+    color: var(--orange); border-color: rgba(255,85,0,0.32); background: rgba(255,85,0,0.20);
     position: relative;
   }
   .secondaryControls button.repeat-one::after {
@@ -348,34 +356,42 @@
 
   function renderInfo(info) {
     if (!info) return;
-    lastInfo = info;
-    $("title").textContent = info.title || "—";
-    $("artist").textContent = info.artist || "—";
+    const title = typeof info.title === "string" && info.title.trim() ? info.title : lastInfo?.title || "—";
+    const artist = typeof info.artist === "string" && info.artist.trim() ? info.artist : lastInfo?.artist || "—";
+    lastInfo = { ...lastInfo, ...info, title, artist };
+
+    $("title").textContent = title;
+    $("artist").textContent = artist;
+
     const art = $("artwork");
     if (info.artwork) {
       art.style.backgroundImage = `url("${normalizeArtworkUrl(info.artwork)}")`;
       art.textContent = "";
-    } else {
+    } else if (!lastInfo.artwork) {
       art.style.backgroundImage = "none";
       art.textContent = "brak okładki";
     }
-    $("totTime").textContent = fmtTime(info.total);
+
     const current = parseSeconds(info.current);
     const total = parseSeconds(info.total);
-    lastCurrent = current;
-    lastTotal = total;
+    if (current != null) lastCurrent = current;
+    if (total != null) lastTotal = total;
     lastInfoTimestamp = performance.now();
-    isPlaying = !!info.playing;
-    if (current != null && total != null && total > 0) {
+    isPlaying = typeof info.playing === "boolean" ? info.playing : isPlaying;
+
+    if (lastTotal != null && lastTotal > 0) {
+      $("totTime").textContent = fmtTime(lastTotal);
+    }
+
+    if (lastCurrent != null && lastTotal != null && lastTotal > 0) {
       updateSeekDisplay();
-    } else {
-      setSeekProgress(0);
-      $("curTime").textContent = fmtTime(info.current);
+    } else if (lastCurrent != null) {
+      $("curTime").textContent = fmtTime(lastCurrent);
     }
 
     const iconPlay = $("iconPlay");
     const iconPause = $("iconPause");
-    if (info.playing) {
+    if (isPlaying) {
       iconPlay.style.display = "none";
       iconPause.style.display = "";
     } else {
@@ -383,8 +399,6 @@
       iconPause.style.display = "none";
     }
 
-    // Odzwierciedlaj PRAWDZIWY stan z komputera, zamiast zgadywać lokalnie -
-    // inaczej przycisk na telefonie i realny stan na SoundCloud się rozjeżdżają.
     $("btnLike").classList.toggle("active", !!info.liked);
     $("btnShuffle").classList.toggle("active", !!info.shuffled);
     const mode = typeof info.repeatMode === "number"
