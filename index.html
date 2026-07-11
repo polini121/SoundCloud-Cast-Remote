@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, viewport-fit=cover" />
-<title>SoundCloud Cast Remote</title>
+<title></title>
 <style>
   :root {
     --orange: #ff5500;
@@ -16,6 +16,7 @@
   * { box-sizing: border-box; }
   html, body {
     margin: 0; padding: 0; height: 100%;
+    overflow: hidden;
     background: var(--bg); color: var(--text);
     font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
     -webkit-tap-highlight-color: transparent;
@@ -128,9 +129,7 @@
 <body>
 <div id="app">
   <header>
-    <h1>🔊 SoundCloud Cast Remote</h1>
-    <span id="statusPill" class="warn">Niepołączono</span>
-  </header>
+
 
   <div id="pairScreen">
     <label for="pairInput">Wpisz kod parowania z komputera</label>
@@ -276,7 +275,6 @@
   function setSeekProgress(percent) {
     const normalized = Math.max(0, Math.min(100, percent || 0));
     $("seekFill").style.width = normalized + "%";
-    $("seekThumb").style.left = normalized + "%";
   }
 
   function normalizeArtworkUrl(url) {
@@ -343,7 +341,7 @@
       conn = peer.connect(id, { reliable: true });
 
       conn.on("open", () => {
-        setStatus("Połączono ✓", "ok");
+        setStatus("Podłączono ✓", "ok");
         connectBtn.disabled = false;
         showRemote(true);
         conn.send({ type: "get" });
@@ -404,7 +402,43 @@
   $("btnVolUp").addEventListener("click", () => send("volumeUp"));
   $("btnVolDown").addEventListener("click", () => send("volumeDown"));
 
+  let isSeeking = false;
+  let seekRect = null;
+
+  function getSeekPercent(clientX) {
+    if (!seekRect) return 0;
+    return Math.max(0, Math.min(100, ((clientX - seekRect.left) / seekRect.width) * 100));
+  }
+
+  function startSeek(e) {
+    if (!conn || !conn.open) return;
+    isSeeking = true;
+    seekRect = $("seekBar").getBoundingClientRect();
+    const clientX = e.type.startsWith("touch") ? e.touches[0].clientX : e.clientX;
+    const percent = getSeekPercent(clientX);
+    send("seek", percent);
+  }
+
+  function moveSeek(e) {
+    if (!isSeeking || !conn || !conn.open) return;
+    const clientX = e.type.startsWith("touch") ? e.touches[0].clientX : e.clientX;
+    const percent = getSeekPercent(clientX);
+    send("seek", percent);
+  }
+
+  function endSeek() {
+    if (!isSeeking) return;
+    isSeeking = false;
+    seekRect = null;
+  }
+
+  $("seekBar").addEventListener("pointerdown", startSeek);
+  window.addEventListener("pointermove", moveSeek);
+  window.addEventListener("pointerup", endSeek);
+  window.addEventListener("pointercancel", endSeek);
+
   $("seekBar").addEventListener("click", (e) => {
+    if (isSeeking) return;
     const rect = e.currentTarget.getBoundingClientRect();
     const percent = ((e.clientX - rect.left) / rect.width) * 100;
     send("seek", Math.max(0, Math.min(100, percent)));
@@ -418,13 +452,13 @@
     setStatus("Niepołączono", "warn");
   });
 
-  // Odśwież stan co 3s jako fallback (na wypadek zgubionej wiadomości)
+  // Odśwież stan co 1s jako fallback (na wypadek zgubionej wiadomości)
   setInterval(() => {
     if (conn && conn.open) conn.send({ type: "get" });
-  }, 3000);
+  }, 1000);
 
   // Animuj pasek odtwarzania na żywo między danymi z komputera
-  setInterval(updateSeekDisplay, 200);
+  setInterval(updateSeekDisplay, 100);
 
   if (prefillId) {
     // Autopołączenie, jeśli kod przyszedł z linku
