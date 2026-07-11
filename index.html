@@ -449,7 +449,7 @@
   }
 
   function connectTo(id) {
-    const normalizedId = String(id || "").trim().toUpperCase();
+    const normalizedId = String(id || "").trim().toLowerCase();
     pullStartY = null;
     pullDistance = 0;
     showPullHint(false);
