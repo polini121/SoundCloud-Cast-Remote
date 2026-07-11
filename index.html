@@ -259,6 +259,8 @@
   let pullHint = null;
   const pullThreshold = 80;
   let connectTimer = null;
+  let connectAttempts = 0;
+  const MAX_CONNECT_ATTEMPTS = 3;
 
   // Wczytaj kod z ?id=... w URL, jeśli jest (np. z linku wygenerowanego przez rozszerzenie)
   const urlParams = new URLSearchParams(location.search);
@@ -436,7 +438,18 @@
     return "Błąd połączenia: " + message;
   }
 
+  function isRetryableConnectionError(err) {
+    const message = String(err?.message || err?.type || err || "");
+    const text = message.toLowerCase();
+    return err?.type === "peer-unavailable"
+      || message.includes("does not exist")
+      || text.includes("could not establish connection")
+      || text.includes("server error")
+      || text.includes("network");
+  }
+
   function connectTo(id) {
+    const normalizedId = String(id || "").trim().toUpperCase();
     pullStartY = null;
     pullDistance = 0;
     showPullHint(false);
@@ -445,57 +458,87 @@
     setStatus("Łączenie…", "warn");
     clearConnectTimer();
 
-    connectTimer = window.setTimeout(() => {
-      if (conn && !conn.open) {
-        pairError.textContent = "Połączenie nie zostało nawiązane w czasie. Sprawdź, czy komputer jest online i czy kod jest aktualny.";
-        connectBtn.disabled = false;
-        setStatus("Błąd", "warn");
-      }
-    }, 10000);
+    const attemptConnect = () => {
+      connectAttempts += 1;
+      if (conn) { try { conn.close(); } catch (e) {} }
+      if (peer) { try { peer.destroy(); } catch (e) {} }
+      conn = null;
 
-    if (peer) { try { peer.destroy(); } catch (e) {} }
-    // eslint-disable-next-line no-undef
-    peer = new Peer(undefined, peerOptions); // losowy, anonimowy peer po stronie telefonu
-    peer.on("open", () => {
-      conn = peer.connect(id, { reliable: true });
-
-      conn.on("open", () => {
-        clearConnectTimer();
-        setStatus("Podłączono ✓", "ok");
-        connectBtn.disabled = false;
-        showRemote(true);
-        conn.send({ type: "get" });
-      });
-
-      conn.on("data", (data) => {
-        if (!data || !data.type) return;
-        if (data.type === "hello" || data.type === "state") {
-          renderInfo(data.info);
-          if (data.error) setStatus(data.error, "warn");
+      connectTimer = window.setTimeout(() => {
+        if (conn && !conn.open) {
+          if (connectAttempts < MAX_CONNECT_ATTEMPTS) {
+            pairError.textContent = "Czekam na komputer…";
+            setStatus("Ponawiam połączenie…", "warn");
+            window.setTimeout(attemptConnect, 900);
+          } else {
+            pairError.textContent = "Połączenie nie zostało nawiązane w czasie. Sprawdź, czy komputer jest online i czy kod jest aktualny.";
+            connectBtn.disabled = false;
+            setStatus("Błąd", "warn");
+          }
         }
+      }, 10000);
+
+      // eslint-disable-next-line no-undef
+      peer = new Peer(undefined, peerOptions); // losowy, anonimowy peer po stronie telefonu
+      peer.on("open", () => {
+        conn = peer.connect(normalizedId, { reliable: true });
+
+        conn.on("open", () => {
+          clearConnectTimer();
+          connectAttempts = 0;
+          setStatus("Podłączono ✓", "ok");
+          connectBtn.disabled = false;
+          showRemote(true);
+          conn.send({ type: "get" });
+        });
+
+        conn.on("data", (data) => {
+          if (!data || !data.type) return;
+          if (data.type === "hello" || data.type === "state") {
+            renderInfo(data.info);
+            if (data.error) setStatus(data.error, "warn");
+          }
+        });
+
+        conn.on("close", () => {
+          clearConnectTimer();
+          connectAttempts = 0;
+          setStatus("Rozłączono", "warn");
+          showRemote(false);
+          connectBtn.disabled = false;
+        });
+
+        conn.on("error", (err) => {
+          if (isRetryableConnectionError(err) && connectAttempts < MAX_CONNECT_ATTEMPTS) {
+            clearConnectTimer();
+            pairError.textContent = "Czekam na komputer…";
+            setStatus("Ponawiam połączenie…", "warn");
+            window.setTimeout(attemptConnect, 900);
+            return;
+          }
+          clearConnectTimer();
+          pairError.textContent = formatPeerError(err);
+          connectBtn.disabled = false;
+          setStatus("Błąd", "warn");
+        });
       });
 
-      conn.on("close", () => {
+      peer.on("error", (err) => {
+        if (isRetryableConnectionError(err) && connectAttempts < MAX_CONNECT_ATTEMPTS) {
+          clearConnectTimer();
+          pairError.textContent = "Czekam na komputer…";
+          setStatus("Ponawiam połączenie…", "warn");
+          window.setTimeout(attemptConnect, 900);
+          return;
+        }
         clearConnectTimer();
-        setStatus("Rozłączono", "warn");
-        showRemote(false);
         connectBtn.disabled = false;
-      });
-
-      conn.on("error", (err) => {
-        clearConnectTimer();
         pairError.textContent = formatPeerError(err);
-        connectBtn.disabled = false;
         setStatus("Błąd", "warn");
       });
-    });
+    };
 
-    peer.on("error", (err) => {
-      clearConnectTimer();
-      connectBtn.disabled = false;
-      pairError.textContent = formatPeerError(err);
-      setStatus("Błąd", "warn");
-    });
+    attemptConnect();
   }
 
   connectBtn.addEventListener("click", () => {
@@ -504,6 +547,7 @@
       pairError.textContent = "Podaj kod parowania.";
       return;
     }
+    pairInput.value = id.toUpperCase();
     connectTo(id);
   });
 
