@@ -111,6 +111,7 @@
   }
   .mainControls button svg { width: 26px; height: 26px; }
   #btnPlayPause svg { width: 26px; height: 26px; }
+  #btnNext.disabled { color: #303030; pointer-events: none; }
 
   .controlsRow { display: flex; align-items: stretch; gap: 10px; margin-top: 10px; }
   .secondaryControls {
@@ -492,9 +493,14 @@
       : (!!info.repeating ? 1 : 0);
     setRepeatState(mode);
     $("btnMute").classList.toggle("active", !!info.muted);
+    $("btnNext").classList.toggle("disabled", !!info.nextDisabled);
 
     if (typeof info.volume === "number" && !Number.isNaN(info.volume)) {
-      updateVolumeSliderUI(info.volume / 100);
+      // Wyciszone -> pokaż uchwyt na samym dole (0%), a nie prawdziwy poziom
+      // głośności, który SoundCloud pamięta "w tle". To odzwierciedla to co
+      // widać na samym SoundCloudzie przy wyciszeniu.
+      const displayVolume = info.muted ? 0 : info.volume / 100;
+      updateVolumeSliderUI(displayVolume);
     }
   }
 
