@@ -154,10 +154,44 @@
   #btnLike path { fill: transparent; stroke: currentColor; stroke-width: 1.2; transition: fill 0.15s ease; }
   #btnLike.active path { fill: currentColor; }
 
-  .volumeRow { display: flex; align-items: center; gap: 10px; margin-top: 4px; }
-  .volumeRow button {
-    background: var(--card); border: 1px solid var(--line); color: var(--text);
-    width: 40px; height: 40px; border-radius: 10px; font-size: 16px; cursor: pointer;
+  /* Volume Slider */
+  .volume__sliderWrapper {
+    position: relative;
+    width: 36px;
+    height: 140px;
+    margin: 12px auto 4px;
+    cursor: pointer;
+    touch-action: none;
+    border-radius: 18px;
+    overflow: hidden;
+  }
+  .volume__sliderBackground {
+    position: absolute;
+    inset: 0;
+    background: #2a2a2a;
+    border-radius: 18px;
+  }
+  .volume__sliderProgress {
+    position: absolute;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    height: 140px;
+    background: linear-gradient(0deg, rgba(255,85,0,0.9) 0%, rgba(255,85,0,0.4) 100%);
+    border-radius: 18px;
+    transition: height 0.1s ease;
+  }
+  .volume__sliderHandle {
+    position: absolute;
+    left: 50%;
+    top: 10px;
+    transform: translateX(-50%);
+    width: 28px;
+    height: 6px;
+    background: var(--text);
+    border-radius: 3px;
+    box-shadow: 0 1px 4px rgba(0,0,0,0.4);
+    transition: top 0.1s ease;
   }
 
   #reconnectBtn {
@@ -226,10 +260,10 @@
         </button>
       </div>
 
-      <div class="volumeRow">
-        <button id="btnVolDown">–</button>
-        <div style="flex:1; text-align:center; font-size: 11px; color: var(--muted);">Głośność <span id="volPercent"></span></div>
-        <button id="btnVolUp">+</button>
+      <div class="volume__sliderWrapper" id="volumeSlider" role="slider" aria-valuemin="0" aria-valuemax="1" aria-label="Volume" aria-valuenow="1">
+        <div class="volume__sliderBackground"></div>
+        <div class="volume__sliderProgress" id="volProgress" style="height: 140px;"></div>
+        <div class="volume__sliderHandle" id="volHandle" style="top: 0px;"></div>
       </div>
     </div>
 
@@ -267,15 +301,15 @@
   let connectAttempts = 0;
   const MAX_CONNECT_ATTEMPTS = 3;
 
-  // Wczytaj kod z ?id=... w URL, jeśli jest (np. z linku wygenerowanego przez rozszerzenie)
+  // Volume slider state
+  let currentVolume = 1; // 0..1
+  let isVolumeSliding = false;
+  let volumeSliderRect = null;
+  const SLIDER_HEIGHT = 140;
+
   const urlParams = new URLSearchParams(location.search);
   const prefillId = urlParams.get("id");
 
-  // BUGFIX: domyślne wartości muszą się zgadzać z domyślną konfiguracją
-  // rozszerzenia (offscreen.js: 0.peerjs.com:443, secure=true). Wcześniej
-  // brakujące parametry w URL (np. otwarcie strony ze starej zakładki, bez
-  // świeżego linku/QR z popupu) powodowały próbę łączenia z "localhost"
-  // po niezaszyfrowanym połączeniu, co nigdy nie mogło się udać.
   const DEFAULT_PEER_HOST = "0.peerjs.com";
   const DEFAULT_PEER_PORT = 443;
   const DEFAULT_PEER_SECURE = true;
@@ -381,6 +415,19 @@
       .replace(/-(large|small|badge|crop|tiny)(\.[a-z]+)$/i, "-t500x500$2");
   }
 
+  // Volume slider UI update
+  function updateVolumeSliderUI(vol) {
+    currentVolume = Math.max(0, Math.min(1, vol));
+    const progressHeight = Math.round(currentVolume * SLIDER_HEIGHT);
+    const handleTop = SLIDER_HEIGHT - progressHeight;
+    const volProgress = $("volProgress");
+    const volHandle = $("volHandle");
+    const volumeSlider = $("volumeSlider");
+    if (volProgress) volProgress.style.height = progressHeight + "px";
+    if (volHandle) volHandle.style.top = handleTop + "px";
+    if (volumeSlider) volumeSlider.setAttribute("aria-valuenow", currentVolume.toFixed(2));
+  }
+
   function renderInfo(info) {
     if (!info) return;
     const title = typeof info.title === "string" && info.title.trim() ? info.title : lastInfo?.title || "—";
@@ -435,8 +482,7 @@
     $("btnMute").classList.toggle("active", !!info.muted);
 
     if (typeof info.volume === "number" && !Number.isNaN(info.volume)) {
-      const volEl = $("volPercent");
-      if (volEl) volEl.textContent = Math.round(info.volume) + "%";
+      updateVolumeSliderUI(info.volume / 100);
     }
   }
 
@@ -489,11 +535,6 @@
       conn = null;
 
       connectTimer = window.setTimeout(() => {
-        // BUGFIX: wcześniej ten warunek sprawdzał tylko "conn && !conn.open",
-        // ale conn jest tworzone dopiero WEWNĄTRZ peer.on("open"). Jeśli sam
-        // peer nigdy się nie połączył z serwerem PeerJS (i nie doszło do
-        // odpalenia zdarzenia "error"), conn zostawał null na zawsze i timeout
-        // nic nie robił - użytkownik utykał na "Łączenie…" bez końca.
         if (!peerOpened || (conn && !conn.open)) {
           if (connectAttempts < MAX_CONNECT_ATTEMPTS) {
             pairError.textContent = "Czekam na komputer…";
@@ -508,7 +549,7 @@
       }, 10000);
 
       // eslint-disable-next-line no-undef
-      peer = new Peer(undefined, peerOptions); // losowy, anonimowy peer po stronie telefonu
+      peer = new Peer(undefined, peerOptions);
       peer.on("open", () => {
         peerOpened = true;
         conn = peer.connect(normalizedId, { reliable: true });
@@ -586,7 +627,7 @@
     if (e.touches.length !== 1) return;
     const touch = e.touches[0];
     if (touch.clientY > 40) return;
-    if (e.target.closest("#seekBar")) return;
+    if (e.target.closest("#seekBar") || e.target.closest("#volumeSlider")) return;
     pullStartY = touch.clientY;
     pullDistance = 0;
     updatePullHint(0);
@@ -623,9 +664,66 @@
   $("btnRepeat").addEventListener("click", () => sendToggle("repeat", $("btnRepeat")));
   $("btnLike").addEventListener("click", () => sendToggle("like", $("btnLike")));
   $("btnMute").addEventListener("click", () => sendToggle("mute", $("btnMute")));
-  $("btnVolUp").addEventListener("click", () => send("volumeUp"));
-  $("btnVolDown").addEventListener("click", () => send("volumeDown"));
 
+  // Volume slider interaction
+  function getVolumeFromEvent(e) {
+    if (!volumeSliderRect) return currentVolume;
+    const clientY = e.touches ? e.touches[0].clientY : e.clientY;
+    const offsetFromTop = clientY - volumeSliderRect.top;
+    const vol = 1 - (offsetFromTop / SLIDER_HEIGHT);
+    return Math.max(0, Math.min(1, vol));
+  }
+
+  function sendVolume(vol) {
+    if (!conn || !conn.open) return;
+    conn.send({ type: "action", action: "setVolume", value: Math.round(vol * 100) });
+  }
+
+  function startVolumeSlide(e) {
+    if (isVolumeSliding) return;
+    if (typeof e.preventDefault === "function") e.preventDefault();
+    isVolumeSliding = true;
+    volumeSliderRect = $("volumeSlider").getBoundingClientRect();
+    const vol = getVolumeFromEvent(e);
+    updateVolumeSliderUI(vol);
+    sendVolume(vol);
+  }
+
+  function moveVolumeSlide(e) {
+    if (!isVolumeSliding) return;
+    if (typeof e.preventDefault === "function") e.preventDefault();
+    const vol = getVolumeFromEvent(e);
+    updateVolumeSliderUI(vol);
+    sendVolume(vol);
+  }
+
+  function endVolumeSlide() {
+    if (!isVolumeSliding) return;
+    isVolumeSliding = false;
+    volumeSliderRect = null;
+  }
+
+  const volumeSliderEl = $("volumeSlider");
+  volumeSliderEl.addEventListener("pointerdown", startVolumeSlide);
+  volumeSliderEl.addEventListener("touchstart", startVolumeSlide, { passive: false });
+  window.addEventListener("pointermove", (e) => { if (isVolumeSliding) moveVolumeSlide(e); });
+  window.addEventListener("touchmove", (e) => { if (isVolumeSliding) moveVolumeSlide(e); }, { passive: false });
+  window.addEventListener("pointerup", endVolumeSlide);
+  window.addEventListener("pointercancel", endVolumeSlide);
+  window.addEventListener("touchend", endVolumeSlide);
+  window.addEventListener("touchcancel", endVolumeSlide);
+
+  volumeSliderEl.addEventListener("click", (e) => {
+    if (isVolumeSliding) return;
+    const rect = e.currentTarget.getBoundingClientRect();
+    const offsetFromTop = e.clientY - rect.top;
+    const vol = 1 - (offsetFromTop / SLIDER_HEIGHT);
+    const clampedVol = Math.max(0, Math.min(1, vol));
+    updateVolumeSliderUI(clampedVol);
+    sendVolume(clampedVol);
+  });
+
+  // Seek bar
   let isSeeking = false;
   let seekRect = null;
   const SEEK_MAX_PERCENT = 98.5;
@@ -715,19 +813,13 @@
     setStatus("Niepołączono", "warn");
   });
 
-  // Odśwież stan jako fallback (na wypadek zgubionej wiadomości).
-  // OPTYMALIZACJA: rozszerzenie i tak wypycha stan przy każdej zmianie oraz
-  // co ok. 2s, więc pytanie o stan co 1s było zbędnym obciążeniem połączenia
-  // WebRTC i baterii telefonu. Co 2.5s wystarcza jako siatka bezpieczeństwa.
   setInterval(() => {
     if (conn && conn.open) conn.send({ type: "get" });
   }, 2500);
 
-  // Animuj pasek odtwarzania na żywo między danymi z komputera
   setInterval(updateSeekDisplay, 100);
 
   if (prefillId) {
-    // Autopołączenie, jeśli kod przyszedł z linku
     setTimeout(() => connectBtn.click(), 300);
   }
 })();
