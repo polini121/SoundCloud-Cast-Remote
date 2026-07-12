@@ -116,12 +116,12 @@
   .controlsRow { display: flex; align-items: stretch; gap: 10px; margin-top: 10px; }
   .secondaryControls {
     flex: 1; min-width: 0;
-    display: grid; grid-template-columns: 1fr 1fr; gap: 8px;
+    display: grid; grid-template-columns: 1fr 1fr; gap: 10px;
   }
   .secondaryControls button {
     min-width: 0; background: rgba(255,255,255,0.03); border: none;
-    color: var(--muted); cursor: pointer; padding: 10px 4px; font-size: 11px;
-    display: flex; flex-direction: column; align-items: center; gap: 4px; border-radius: 14px;
+    color: var(--muted); cursor: pointer; padding: 18px 6px; font-size: 13px;
+    display: flex; flex-direction: column; align-items: center; gap: 6px; border-radius: 14px;
     transition: background 0.15s ease, color 0.15s ease;
     outline: none;
   }
@@ -155,52 +155,12 @@
     font-weight: 700;
     color: var(--orange);
   }
-  .secondaryControls svg { width: 20px; height: 20px; }
+  .secondaryControls svg { width: 22px; height: 22px; }
 
   /* Przycisk Lubię to — styl SoundCloud (serce 16x16) */
   #btnLike svg { width: 16px; height: 16px; }
   #btnLike path { fill: transparent; stroke: currentColor; stroke-width: 1.2; transition: fill 0.15s ease; }
   #btnLike.active path { fill: currentColor; }
-
-  /* Volume Slider */
-  .volume__sliderWrapper {
-    position: relative;
-    width: 40px;
-    flex-shrink: 0;
-    cursor: pointer;
-    touch-action: none;
-    border-radius: 18px;
-    overflow: hidden;
-    background: #2a2a2a;
-  }
-  .volume__sliderBackground {
-    position: absolute;
-    inset: 0;
-    background: #2a2a2a;
-    border-radius: 18px;
-  }
-  .volume__sliderProgress {
-    position: absolute;
-    left: 0;
-    right: 0;
-    bottom: 0;
-    height: 140px;
-    background: linear-gradient(0deg, rgba(255,85,0,0.9) 0%, rgba(255,85,0,0.4) 100%);
-    border-radius: 18px;
-    transition: height 0.1s ease;
-  }
-  .volume__sliderHandle {
-    position: absolute;
-    left: 50%;
-    top: 10px;
-    transform: translateX(-50%);
-    width: 28px;
-    height: 6px;
-    background: var(--text);
-    border-radius: 3px;
-    box-shadow: 0 1px 4px rgba(0,0,0,0.4);
-    transition: top 0.1s ease;
-  }
 
   #reconnectBtn {
     display: none;
@@ -272,12 +232,6 @@
             <span>Wycisz</span>
           </button>
         </div>
-
-        <div class="volume__sliderWrapper" id="volumeSlider" role="slider" aria-valuemin="0" aria-valuemax="1" aria-label="Volume" aria-valuenow="1">
-          <div class="volume__sliderBackground"></div>
-          <div class="volume__sliderProgress" id="volProgress" style="height: 100%;"></div>
-          <div class="volume__sliderHandle" id="volHandle" style="top: 0%;"></div>
-        </div>
       </div>
     </div>
   </div>
@@ -312,12 +266,6 @@
   let connectTimer = null;
   let connectAttempts = 0;
   const MAX_CONNECT_ATTEMPTS = 3;
-
-  // Volume slider state
-  let currentVolume = 1; // 0..1
-  let isVolumeSliding = false;
-  let volumeSliderRect = null;
-  const SLIDER_HEIGHT = 140;
 
   const urlParams = new URLSearchParams(location.search);
   const prefillId = urlParams.get("id");
@@ -428,19 +376,6 @@
       .replace(/-(large|small|badge|crop|tiny)(\.[a-z]+)$/i, "-t500x500$2");
   }
 
-  // Volume slider UI update
-  function updateVolumeSliderUI(vol) {
-    currentVolume = Math.max(0, Math.min(1, vol));
-    const progressPercent = currentVolume * 100;
-    const handleTopPercent = 100 - progressPercent;
-    const volProgress = $("volProgress");
-    const volHandle = $("volHandle");
-    const volumeSlider = $("volumeSlider");
-    if (volProgress) volProgress.style.height = progressPercent + "%";
-    if (volHandle) volHandle.style.top = handleTopPercent + "%";
-    if (volumeSlider) volumeSlider.setAttribute("aria-valuenow", currentVolume.toFixed(2));
-  }
-
   function renderInfo(info) {
     if (!info) return;
     const title = typeof info.title === "string" && info.title.trim() ? info.title : lastInfo?.title || "—";
@@ -494,14 +429,6 @@
     setRepeatState(mode);
     $("btnMute").classList.toggle("active", !!info.muted);
     $("btnNext").classList.toggle("disabled", !!info.nextDisabled);
-
-    if (typeof info.volume === "number" && !Number.isNaN(info.volume)) {
-      // Wyciszone -> pokaż uchwyt na samym dole (0%), a nie prawdziwy poziom
-      // głośności, który SoundCloud pamięta "w tle". To odzwierciedla to co
-      // widać na samym SoundCloudzie przy wyciszeniu.
-      const displayVolume = info.muted ? 0 : info.volume / 100;
-      updateVolumeSliderUI(displayVolume);
-    }
   }
 
   function clearConnectTimer() {
@@ -645,7 +572,7 @@
     if (e.touches.length !== 1) return;
     const touch = e.touches[0];
     if (touch.clientY > 40) return;
-    if (e.target.closest("#seekBar") || e.target.closest("#volumeSlider")) return;
+    if (e.target.closest("#seekBar")) return;
     pullStartY = touch.clientY;
     pullDistance = 0;
     updatePullHint(0);
@@ -682,64 +609,6 @@
   $("btnRepeat").addEventListener("click", () => sendToggle("repeat", $("btnRepeat")));
   $("btnLike").addEventListener("click", () => sendToggle("like", $("btnLike")));
   $("btnMute").addEventListener("click", () => sendToggle("mute", $("btnMute")));
-
-  // Volume slider interaction
-  function getVolumeFromEvent(e) {
-    if (!volumeSliderRect) return currentVolume;
-    const clientY = e.touches ? e.touches[0].clientY : e.clientY;
-    const offsetFromTop = clientY - volumeSliderRect.top;
-    const vol = 1 - (offsetFromTop / volumeSliderRect.height);
-    return Math.max(0, Math.min(1, vol));
-  }
-
-  function sendVolume(vol) {
-    if (!conn || !conn.open) return;
-    conn.send({ type: "action", action: "setVolume", value: Math.round(vol * 100) });
-  }
-
-  function startVolumeSlide(e) {
-    if (isVolumeSliding) return;
-    if (typeof e.preventDefault === "function") e.preventDefault();
-    isVolumeSliding = true;
-    volumeSliderRect = $("volumeSlider").getBoundingClientRect();
-    const vol = getVolumeFromEvent(e);
-    updateVolumeSliderUI(vol);
-    sendVolume(vol);
-  }
-
-  function moveVolumeSlide(e) {
-    if (!isVolumeSliding) return;
-    if (typeof e.preventDefault === "function") e.preventDefault();
-    const vol = getVolumeFromEvent(e);
-    updateVolumeSliderUI(vol);
-    sendVolume(vol);
-  }
-
-  function endVolumeSlide() {
-    if (!isVolumeSliding) return;
-    isVolumeSliding = false;
-    volumeSliderRect = null;
-  }
-
-  const volumeSliderEl = $("volumeSlider");
-  volumeSliderEl.addEventListener("pointerdown", startVolumeSlide);
-  volumeSliderEl.addEventListener("touchstart", startVolumeSlide, { passive: false });
-  window.addEventListener("pointermove", (e) => { if (isVolumeSliding) moveVolumeSlide(e); });
-  window.addEventListener("touchmove", (e) => { if (isVolumeSliding) moveVolumeSlide(e); }, { passive: false });
-  window.addEventListener("pointerup", endVolumeSlide);
-  window.addEventListener("pointercancel", endVolumeSlide);
-  window.addEventListener("touchend", endVolumeSlide);
-  window.addEventListener("touchcancel", endVolumeSlide);
-
-  volumeSliderEl.addEventListener("click", (e) => {
-    if (isVolumeSliding) return;
-    const rect = e.currentTarget.getBoundingClientRect();
-    const offsetFromTop = e.clientY - rect.top;
-    const vol = 1 - (offsetFromTop / rect.height);
-    const clampedVol = Math.max(0, Math.min(1, vol));
-    updateVolumeSliderUI(clampedVol);
-    sendVolume(clampedVol);
-  });
 
   // Seek bar
   let isSeeking = false;
